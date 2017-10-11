@@ -145,31 +145,40 @@ int main() {
         ifs >> testLabels[i];
 	}
 	ifs.close();
-    InnerProduct fc(nImgRows * nImgCols, 10);
-    ReLU relu(500);
+    InnerProduct fc1(nImgRows * nImgCols, 100), fc2(100, 10);
+//    InnerProduct fc(nImgRows * nImgCols, 10);
+    ReLU relu(100);
     SoftmaxWithLoss loss(10);
     for(int i = 0; i < 10000 / trainImgs.size(); ++i) {//max_iter
         for(int j = 0; j < trainImgs.size(); ++j) {//max_iter
             if (!(j % 2000)) {//stepsize
                 base_lr *= 0.1;//gammar
             }
-            fc.forward_pass(trainImgs[j]);
-            loss.forward_pass(fc.top);
+            fc1.forward_pass(trainImgs[j]);
+            relu.forward_pass(fc1.top);
+            fc2.forward_pass(relu.top);
+            loss.forward_pass(fc2.top);
             loss.backward_pass(trainLabels[j]);
-            fc.backward_pass(loss.grads, trainImgs[j], base_lr);
+            fc2.backward_pass(loss.grads, relu.top, base_lr);
+            relu.backward_pass(fc2.grads);
+            fc1.backward_pass(relu.grads, trainImgs[j], base_lr);
         }
         std::cout << i;
         tp = fp = 0;
         for(int k = 0; k < trainImgs.size(); ++k) {
-            fc.forward_pass(trainImgs[k]);
-            loss.forward_pass(fc.top);
+            fc1.forward_pass(trainImgs[k]);
+            relu.forward_pass(fc1.top);
+            fc2.forward_pass(relu.top);
+            loss.forward_pass(fc2.top);
             std::max_element(loss.top.begin(), loss.top.end()) - loss.top.begin() == trainLabels[k] ? ++tp : ++fp;
         }
         std::cout << "\ttrain:\t" << 1.0 * tp / (tp + fp);
         tp = fp = 0;
         for(int k = 0; k < testImgs.size(); ++k) {
-            fc.forward_pass(testImgs[k]);
-            loss.forward_pass(fc.top);
+            fc1.forward_pass(testImgs[k]);
+            relu.forward_pass(fc1.top);
+            fc2.forward_pass(relu.top);
+            loss.forward_pass(fc2.top);
             std::max_element(loss.top.begin(), loss.top.end()) - loss.top.begin() == testLabels[k] ? ++tp : ++fp;
         }
         std::cout << "\ttest:\t" << 1.0 * tp / (tp + fp) <<std::endl;
