@@ -12,7 +12,7 @@ class InnerProduct{
 public:
     int n, m;
     std::vector<FLTARY> w;
-    FLTARY b, top;
+    FLTARY b, top, grads;
     InnerProduct(int input, int output) {
         n = output;
         m = input;
@@ -22,6 +22,7 @@ public:
         w.resize(output);
         b.resize(output);
         top.resize(output);
+        grads.resize(input);
         for(int i = 0; i < output; ++i) {
             w[i].resize(input);
             for(int j = 0; j < input; ++j) {
@@ -38,21 +39,36 @@ public:
             }
         }
     }
-    void backward_pass() {
+    void backward_pass(FLTARY top_grads, FLTARY bottom, double base_lr) {
+        grads.assign(m, 0);
+        for(int i = 0; i < n; ++i) {
+            for(int j = 0; j < m; ++j) {
+                grads[j] += top_grads[i] * w[i][j];
+                w[i][j] -= base_lr * top_grads[i] * bottom[j];
+            }
+            b[i] -= base_lr * top_grads[i];
+        }
+
     }
 };
 
 class ReLU{
 public:
     int n;
-    FLTARY top;
+    FLTARY top, grads;
     ReLU(int output) {
         n = output;
         top.resize(output);
+        grads.resize(output);
     }
     void forward_pass(FLTARY bottom) {
         for(int i = 0; i < n; ++i) {
             top[i] = bottom[i] > 0 ? bottom[i] : 0;
+        }
+    }
+    void backward_pass(FLTARY top_grads) {
+        for(int i = 0; i < n; ++i) {
+            grads[i] = top[i] > 0 ? top_grads[i] : 0;
         }
     }
 };
@@ -60,10 +76,11 @@ public:
 class SoftmaxWithLoss{
 public:
     int n;
-    FLTARY top;
+    FLTARY top, grads;
     SoftmaxWithLoss(int output) {
         n = output;
         top.resize(output);
+        grads.resize(output);
     }
     void forward_pass(FLTARY bottom) {
         double ymax = *std::max_element(bottom.begin(), bottom.end()), sum = 0;
@@ -75,8 +92,10 @@ public:
             top[i] /= sum;
         }
     }
-    void back_pass() {
-
+    void backward_pass(float label) {
+        for(int i = 0; i < n; ++i) {
+            grads[i] = top[i] - (label == i);
+        }
     }
 };
 
@@ -111,32 +130,49 @@ void LoadData(_IS &inStream, int *pImgRows, int *pImgCols,
 }
 
 int main() {
-    int nImgRows, nImgCols, batch = 1000;
+    int nImgRows, nImgCols, tp, fp;
     double base_lr = 0.1;
 	std::vector<FLTARY> trainImgs, testImgs;
 	FLTARY trainLabels;
+	FLTARY testLabels;
+	testLabels.resize(500);
 	std::ifstream ifs("train_2000a.txt");
 	LoadData(ifs, &nImgRows, &nImgCols, trainImgs, trainLabels, testImgs);
 //	LoadData(std::cin, &nImgRows, &nImgCols, trainImgs, trainLabels, testImgs);
 	ifs.close();
-//    InnerProduct fc1(nImgRows * nImgCols, 500), fc2(500, 10);
+	ifs.open("label_2000a.txt");
+	for(int i = 0; i < 500; ++i) {
+        ifs >> testLabels[i];
+	}
+	ifs.close();
     InnerProduct fc(nImgRows * nImgCols, 10);
     ReLU relu(500);
     SoftmaxWithLoss loss(10);
-    for(int i = 0; i < 100; ++i) {//max_iter
-        if (!(i % 300)) {//sttesize
-            base_lr *= 0.1;//gammar
-        }
-        for(int j = 0; j < trainImgs.size(); j += batch) {
-            for(int k = 0; k < batch; ++k) {
-            /*    fc1.forward_pass(trainImgs[j + k]);
-                relu.forward_pass(fc1.top);
-                fc2.forward_pass(relu.top);
-                loss.forward_pass(fc2.top);*/
-                fc.forward_pass(trainImgs[j + k]);
-                loss.forward_pass(fc.top);
+    for(int i = 0; i < 10000 / trainImgs.size(); ++i) {//max_iter
+        for(int j = 0; j < trainImgs.size(); ++j) {//max_iter
+            if (!(j % 2000)) {//stepsize
+                base_lr *= 0.1;//gammar
             }
+            fc.forward_pass(trainImgs[j]);
+            loss.forward_pass(fc.top);
+            loss.backward_pass(trainLabels[j]);
+            fc.backward_pass(loss.grads, trainImgs[j], base_lr);
         }
+        std::cout << i;
+        tp = fp = 0;
+        for(int k = 0; k < trainImgs.size(); ++k) {
+            fc.forward_pass(trainImgs[k]);
+            loss.forward_pass(fc.top);
+            std::max_element(loss.top.begin(), loss.top.end()) - loss.top.begin() == trainLabels[k] ? ++tp : ++fp;
+        }
+        std::cout << "\ttrain:\t" << 1.0 * tp / (tp + fp);
+        tp = fp = 0;
+        for(int k = 0; k < testImgs.size(); ++k) {
+            fc.forward_pass(testImgs[k]);
+            loss.forward_pass(fc.top);
+            std::max_element(loss.top.begin(), loss.top.end()) - loss.top.begin() == testLabels[k] ? ++tp : ++fp;
+        }
+        std::cout << "\ttest:\t" << 1.0 * tp / (tp + fp) <<std::endl;
     }
 	system("pause");
 	return 0;
